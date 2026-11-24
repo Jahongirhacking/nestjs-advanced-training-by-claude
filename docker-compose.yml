@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nestjs-training-pg
+    environment:
+      POSTGRES_USER: training
+      POSTGRES_PASSWORD: training
+      POSTGRES_DB: training_test
+    ports:
+      - '5433:5432'   # 5432 band bo'lishi mumkin, shuning uchun 5433
+    tmpfs:
+      - /var/lib/postgresql/data   # ma'lumot RAM'da: tez va har safar toza
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U training -d training_test']
+      interval: 2s
+      timeout: 3s
+      retries: 20
