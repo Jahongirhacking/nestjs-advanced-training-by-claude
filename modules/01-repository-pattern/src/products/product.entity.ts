@@ -1,4 +1,5 @@
 import {
+  Check,
   Column,
   CreateDateColumn,
   Entity,
@@ -6,6 +7,7 @@ import {
 } from "typeorm";
 
 @Entity("products")
+@Check("quantity >= 0")
 export class Product {
   @PrimaryGeneratedColumn("uuid")
   id: string;

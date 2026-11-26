@@ -1,11 +1,15 @@
 export class InsufficientStockError extends Error {
-  constructor() {
-    super();
+  constructor(
+    itemSku?: string,
+    itemQuantity?: number,
+    productQuantity?: number,
+  ) {
+    super(`${itemSku}: ${itemQuantity} > ${productQuantity}`);
   }
 }
 
 export class ProductNotFoundError extends Error {
-  constructor() {
-    super();
+  constructor(sku?: string) {
+    super(`${sku} not found`);
   }
 }

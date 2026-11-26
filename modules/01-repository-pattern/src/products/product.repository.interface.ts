@@ -38,3 +38,10 @@ export interface IProductRepository {
   getCategoryStats(): Promise<CategoryStat[]>;
   decrementStockMany(items: StockItem[]): Promise<Product[]>;
 }
+
+export interface IStockLineItem {
+  sku: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+}
