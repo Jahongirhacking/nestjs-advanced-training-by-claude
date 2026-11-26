@@ -7,7 +7,7 @@ import {
 } from "typeorm";
 
 @Entity("products")
-@Check("quantity >= 0")
+@Check('"quantity" >= 0')
 export class Product {
   @PrimaryGeneratedColumn("uuid")
   id: string;
@@ -22,10 +22,14 @@ export class Product {
   category: string;
 
   @Column({
-    type: "decimal",
+    type: "numeric",
+    precision: 12,
+    scale: 2,
     transformer: {
-      from: (value: string) => Number(value),
-      to: (value: string) => value,
+      // DB -> JS: numeric string bo'lib keladi, number'ga o'giramiz
+      from: (value: string | null) => (value === null ? value : Number(value)),
+      // JS -> DB
+      to: (value: number) => value,
     },
   })
   price: number;

@@ -5,16 +5,23 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { CreateProductDto } from "./dto/create-product.dto";
-import { SellProductDto } from "./dto/sell-product.dto";
-import { InsufficientStockError, ProductNotFoundError } from "./errors";
+import {
+  DuplicateSkuError,
+  InsufficientStockError,
+  ProductNotFoundError,
+} from "./errors";
 import { Product } from "./product.entity";
 import {
+  CategoryStat,
   IProductRepository,
   IStockLineItem,
+  NewProduct,
   PRODUCT_REPOSITORY,
   ProductFilter,
+  StockItem,
 } from "./product.repository.interface";
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 @Injectable()
 export class InventoryService {
@@ -22,76 +29,91 @@ export class InventoryService {
     @Inject(PRODUCT_REPOSITORY) private readonly repo: IProductRepository,
   ) {}
 
-  async registerProduct(createProductDto: CreateProductDto) {
-    const product = await this.getProductBySku(createProductDto.sku);
-    if (!!product) throw new ConflictException();
-    return this.repo.create(createProductDto);
-  }
-
-  async getProduct(id: string) {
+  async registerProduct(dto: NewProduct): Promise<Product> {
+    // Tez yo'l: ko'p holatda bazaga yozishga urinmaymiz
+    if (await this.repo.findBySku(dto.sku)) {
+      throw new ConflictException(`SKU already exists: ${dto.sku}`);
+    }
     try {
-      return await this.repo.findById(id);
+      return await this.repo.create(dto);
     } catch (err) {
-      if (err instanceof ProductNotFoundError) throw new NotFoundException();
-      if (err instanceof InsufficientStockError) throw new ConflictException();
+      // Race: tekshiruv va yaratish orasida boshqasi ulgurdi — baza unique constraint'i hal qiladi
+      if (err instanceof DuplicateSkuError) {
+        throw new ConflictException(err.message);
+      }
       throw err;
     }
   }
 
-  async getProductBySku(sku: string): Promise<Product | null> {
-    try {
-      return this.repo.findBySku(sku);
-    } catch {
-      return null;
-    }
+  async getProduct(id: string): Promise<Product> {
+    const product = await this.repo.findById(id);
+    if (!product) throw new NotFoundException(`Product not found: ${id}`);
+    return product;
   }
 
-  listProducts(filter: ProductFilter) {
+  listProducts(filter: ProductFilter): Promise<Product[]> {
     return this.repo.search(filter);
   }
 
   async getRestockReport() {
-    try {
-      const items = await this.repo.findLowStock();
-      return {
-        items: items.map((item) => ({
-          sku: item.sku,
-          name: item.name,
-          quantity: item.quantity,
-          reorderLevel: item.reorderLevel,
-          suggestedOrder: item.reorderLevel * 2 - item.quantity,
-        })),
-        count: items.length || 0,
-      };
-    } catch (err) {
-      if (err instanceof ProductNotFoundError) throw new NotFoundException();
-      if (err instanceof InsufficientStockError) throw new ConflictException();
-      throw err;
-    }
+    const products = await this.repo.findLowStock();
+    return {
+      count: products.length,
+      items: products.map((p) => ({
+        sku: p.sku,
+        name: p.name,
+        quantity: p.quantity,
+        reorderLevel: p.reorderLevel,
+        suggestedOrder: p.reorderLevel * 2 - p.quantity,
+      })),
+    };
   }
 
-  async sell(dto: SellProductDto) {
-    if (!dto?.items || !dto.items.length) throw new BadRequestException();
+  getCategoryStats(): Promise<CategoryStat[]> {
+    return this.repo.getCategoryStats();
+  }
+
+  async sell(dto: { items: StockItem[] }) {
+    this.assertValidSale(dto?.items);
+    const items = dto.items;
+
+    let updated: Product[];
     try {
-      const updatedProducts = await this.repo.decrementStockMany(dto.items);
-      const lines: IStockLineItem[] = updatedProducts.map((product, idx) => ({
-        sku: product.sku,
-        quantity: dto.items?.[idx].quantity,
-        unitPrice: product.price,
-        lineTotal:
-          Math.round(dto.items?.[idx].quantity * product.price * 100) / 100,
-      }));
-      return {
-        lines,
-        total: lines.reduce(
-          (acc, curr) => Math.round((curr.lineTotal + acc) * 100) / 100,
-          0,
-        ),
-      };
+      updated = await this.repo.decrementStockMany(items);
     } catch (err) {
-      if (err instanceof ProductNotFoundError) throw new NotFoundException();
-      if (err instanceof InsufficientStockError) throw new ConflictException();
+      if (err instanceof ProductNotFoundError) {
+        throw new NotFoundException(err.message);
+      }
+      if (err instanceof InsufficientStockError) {
+        throw new ConflictException(err.message);
+      }
       throw err;
+    }
+
+    const lines: IStockLineItem[] = updated.map((product, i) => ({
+      sku: product.sku,
+      quantity: items[i].quantity,
+      unitPrice: product.price,
+      lineTotal: round2(items[i].quantity * product.price),
+    }));
+    const total = round2(lines.reduce((sum, l) => sum + l.lineTotal, 0));
+
+    return { total, lines };
+  }
+
+  private assertValidSale(items: StockItem[] | undefined): asserts items is StockItem[] {
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new BadRequestException("items must be a non-empty array");
+    }
+    if (new Set(items.map((i) => i.sku)).size !== items.length) {
+      throw new BadRequestException("duplicate sku in items");
+    }
+    for (const item of items) {
+      if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+        throw new BadRequestException(
+          `quantity must be a positive integer (sku: ${item.sku})`,
+        );
+      }
     }
   }
 }

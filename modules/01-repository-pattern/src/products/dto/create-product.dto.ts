@@ -1,22 +1,28 @@
-import { IsNumber, IsOptional, IsString } from "class-validator";
+import { IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from "class-validator";
 
 export class CreateProductDto {
   @IsString()
+  @IsNotEmpty()
   sku: string;
 
   @IsString()
+  @IsNotEmpty()
   name: string;
 
   @IsString()
+  @IsNotEmpty()
   category: string;
 
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
   price: number;
 
-  @IsNumber()
+  @IsInt()
+  @Min(0)
   quantity: number;
 
-  @IsNumber()
   @IsOptional()
+  @IsInt()
+  @Min(0)
   reorderLevel?: number;
 }
