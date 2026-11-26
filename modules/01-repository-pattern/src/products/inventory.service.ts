@@ -40,7 +40,7 @@ export class InventoryService {
 
   async getProductBySku(sku: string): Promise<Product | null> {
     try {
-      return this.getProductBySku(sku);
+      return this.repo.findBySku(sku);
     } catch {
       return null;
     }

@@ -91,19 +91,41 @@ export class ProductRepository implements IProductRepository {
   }
 
   decrementStockMany(items: StockItem[]): Promise<Product[]> {
-    return this.dataSource.transaction(async (entityManager) => {
+    return this.dataSource.transaction(async (manager) => {
       const updatedProducts: Product[] = [];
+
       for (const item of items) {
-        const product = await entityManager.findOneBy(Product, {
+        const result = await manager
+          .createQueryBuilder()
+          .update(Product)
+          .set({
+            quantity: () => `quantity - :quantity`,
+          })
+          .where("sku = :sku", { sku: item.sku })
+          .andWhere("quantity >= :quantity", {
+            quantity: item.quantity,
+          })
+          .execute();
+
+        if (result.affected === 0) {
+          const product = await manager.findOne(Product, {
+            where: { sku: item.sku },
+          });
+
+          if (!product) {
+            throw new ProductNotFoundError(item.sku);
+          }
+
+          throw new InsufficientStockError(item.sku);
+        }
+
+        const updatedProduct = await manager.findOneByOrFail(Product, {
           sku: item.sku,
         });
-        if (!product) throw new ProductNotFoundError();
-        if (product?.quantity < item.quantity)
-          throw new InsufficientStockError();
-        product.quantity -= item.quantity;
-        const updatedProduct = await entityManager.save(Product, product);
+
         updatedProducts.push(updatedProduct);
       }
+
       return updatedProducts;
     });
   }
